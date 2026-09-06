@@ -19,7 +19,7 @@ permissions:
 
 env:
   TARGET: armv7-unknown-linux-musleabihf
-  CROSS_URL: https://musl.cc/arm-linux-musleabihf-cross.tgz
+  CROSS_URL: https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--musl--stable-2026.08-1.tar.xz
 
 jobs:
   build:
@@ -45,15 +45,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/cross
-          key: muslcc-arm-linux-musleabihf-11.2
+          key: bootlin-armv7-eabihf-musl-2026.08-1
 
       - name: Download cross toolchain
         if: steps.cross-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p /opt/cross
-          curl -fL --retry 3 --retry-delay 5 -o /tmp/armv7-cross.tgz "$CROSS_URL"
-          tar -xzf /tmp/armv7-cross.tgz -C /opt/cross
-          /opt/cross/arm-linux-musleabihf-cross/bin/arm-linux-musleabihf-gcc --version
+          curl -fL --retry 3 --retry-delay 5 -o /tmp/armv7-cross.tar.xz "$CROSS_URL"
+          tar -xJf /tmp/armv7-cross.tar.xz -C /opt/cross
+          /opt/cross/armv7-eabihf--musl--stable-2026.08-1/bin/arm-buildroot-linux-musleabihf-gcc --version
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -88,9 +88,9 @@ jobs:
           SQLITE3_STATIC: '1'
           LIBSQLITE3_SYS_USE_PKG_CONFIG: '0'
         run: |
-          export PATH=/opt/cross/arm-linux-musleabihf-cross/bin:$PATH
-          export CC_armv7_unknown_linux_musleabihf=arm-linux-musleabihf-gcc
-          export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=arm-linux-musleabihf-gcc
+          export PATH=/opt/cross/armv7-eabihf--musl--stable-2026.08-1/bin:$PATH
+          export CC_armv7_unknown_linux_musleabihf=arm-buildroot-linux-musleabihf-gcc
+          export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=arm-buildroot-linux-musleabihf-gcc
           cargo build --locked --release --target "$TARGET" -p simadmin
           file "target/$TARGET/release/simadmin"
 
