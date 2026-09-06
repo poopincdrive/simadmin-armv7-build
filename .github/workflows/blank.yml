@@ -1,0 +1,144 @@
+name: Build SimAdmin armv7l
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: '构建完成后发布 Release'
+        type: boolean
+        default: true
+      use_upx:
+        description: 'UPX 压缩二进制'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 18 * * *'   # 每天 UTC 18:00（北京时间 02:00）跟踪上游
+
+permissions:
+  contents: write
+
+env:
+  TARGET: armv7-unknown-linux-musleabihf
+  CROSS_URL: https://musl.cc/arm-linux-musleabihf-cross.tgz
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout upstream
+        uses: actions/checkout@v4
+        with:
+          repository: 3899/SimAdmin
+          fetch-depth: 0
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-musleabihf
+
+      - name: Cache cross toolchain
+        id: cross-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/cross
+          key: muslcc-arm-linux-musleabihf-11.2
+
+      - name: Download cross toolchain
+        if: steps.cross-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /opt/cross
+          curl -fL --retry 3 --retry-delay 5 -o /tmp/armv7-cross.tgz "$CROSS_URL"
+          tar -xzf /tmp/armv7-cross.tgz -C /opt/cross
+          /opt/cross/arm-linux-musleabihf-cross/bin/arm-linux-musleabihf-gcc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: armv7-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: armv7-cargo-
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vite build
+
+      - name: Build backend
+        env:
+          SQLITE3_STATIC: '1'
+          LIBSQLITE3_SYS_USE_PKG_CONFIG: '0'
+        run: |
+          export PATH=/opt/cross/arm-linux-musleabihf-cross/bin:$PATH
+          export CC_armv7_unknown_linux_musleabihf=arm-linux-musleabihf-gcc
+          export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=arm-linux-musleabihf-gcc
+          cargo build --locked --release --target "$TARGET" -p simadmin
+          file "target/$TARGET/release/simadmin"
+
+      - name: Compress with UPX
+        if: inputs.use_upx == true
+        run: |
+          sudo apt-get update && sudo apt-get install -y upx-ucl
+          upx --best --lzma "target/$TARGET/release/simadmin"
+
+      - name: Package OTA
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          BINARY="target/$TARGET/release/simadmin"
+          OTA=$(mktemp -d)
+          cp "$BINARY" "$OTA/simadmin" && chmod 755 "$OTA/simadmin"
+          mkdir -p "$OTA/www" && cp -r frontend/dist/* "$OTA/www/"
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y-%m-%dT%H:%M:%S+08:00")
+          BINARY_MD5=$(md5sum "$OTA/simadmin" | cut -d' ' -f1)
+          FRONTEND_MD5=$(find "$OTA/www" -type f -exec md5sum {} \; | cut -d' ' -f1 | sort | md5sum | cut -d' ' -f1)
+          cat > "$OTA/meta.json" <<EOF
+          {
+              "version": "$VERSION",
+              "commit": "$COMMIT",
+              "build_time": "$BUILD_TIME",
+              "binary_md5": "$BINARY_MD5",
+              "frontend_md5": "$FRONTEND_MD5",
+              "arch": "$TARGET"
+          }
+          EOF
+          mkdir -p release
+          tar -C "$OTA" -czf "release/simadmin_${VERSION}_armv7l.tar.gz" meta.json simadmin www
+          sha256sum release/*.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: simadmin-armv7l
+          path: release/*.tar.gz
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: armv7l-v${{ steps.ver.outputs.version }}
+          name: SimAdmin armv7l v${{ steps.ver.outputs.version }}
+          files: release/*.tar.gz
+          prerelease: true
+          overwrite_files: true
