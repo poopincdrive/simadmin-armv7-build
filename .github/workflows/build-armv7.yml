@@ -45,7 +45,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/cross
-          key: bootlin-armv7-eabihf-musl-2026.08-1
+          key: bootlin-selfhosted-2026.08-1
 
       - name: Download cross toolchain
         if: steps.cross-cache.outputs.cache-hit != 'true'
