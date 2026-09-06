@@ -19,7 +19,7 @@ permissions:
 
 env:
   TARGET: armv7-unknown-linux-musleabihf
-  CROSS_URL: https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--musl--stable-2026.08-1.tar.xz
+  CROSS_URL: https://github.com/poopincdrive/simadmin-armv7-build/releases/download/toolchain-bootlin-armv7-2026.08-1/bootlin-armv7-eabihf-musl-stable-2026.08-1.tar.xz
 
 jobs:
   build:
